@@ -1,0 +1,136 @@
+import re
+import sys
+
+class Interpreter:
+    def __init__(self):
+        self.variables = {}
+        self.initialized = set()
+        self.lines = []
+
+    def is_valid_identifier(self, token):
+        return re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", token) is not None
+
+    def tokenize(self, expr):
+        token_spec = [
+            ('NUMBER',   r'-?\d+'),
+            ('ID',       r'[a-zA-Z_][a-zA-Z0-9_]*'),
+            ('OP',       r'[+\-*/()]'),
+            ('SKIP',     r'[ \t]+'),
+            ('MISMATCH', r'.'),
+        ]
+        tok_regex = '|'.join('(?P<%s>%s)' % pair for pair in token_spec)
+        for mo in re.finditer(tok_regex, expr):
+            kind = mo.lastgroup
+            value = mo.group()
+            if kind == 'NUMBER':
+                if len(value) > 1 and value[0] == '0' and value[1].isdigit():
+                    raise ValueError("error")
+                yield ('NUMBER', int(value))
+            elif kind == 'ID':
+                yield ('ID', value)
+            elif kind == 'OP':
+                yield ('OP', value)
+            elif kind == 'SKIP':
+                continue
+            else:
+                raise ValueError("error")
+
+    def parse(self, tokens):
+        self.tokens = list(tokens)
+        self.pos = 0
+        return self.parse_expr()
+
+    def match(self, expected_type, expected_value=None):
+        if self.pos < len(self.tokens):
+            tok_type, tok_value = self.tokens[self.pos]
+            if tok_type == expected_type and (expected_value is None or tok_value == expected_value):
+                self.pos += 1
+                return tok_value
+        return None
+
+    def parse_expr(self):
+        node = self.parse_term()
+        while True:
+            if self.match('OP', '+'):
+                node += self.parse_term()
+            elif self.match('OP', '-'):
+                node -= self.parse_term()
+            else:
+                break
+        return node
+
+    def parse_term(self):
+        node = self.parse_fact()
+        while True:
+            if self.match('OP', '*'):
+                node *= self.parse_fact()
+            else:
+                break
+        return node
+
+    def parse_fact(self):
+        if self.match('OP', '('):
+            val = self.parse_expr()
+            if not self.match('OP', ')'):
+                raise ValueError("error")
+            return val
+        elif self.match('OP', '+'):
+            return +self.parse_fact()
+        elif self.match('OP', '-'):
+            return -self.parse_fact()
+        elif self.pos < len(self.tokens):
+            typ, val = self.tokens[self.pos]
+            self.pos += 1
+            if typ == 'NUMBER':
+                return val
+            elif typ == 'ID':
+                if val not in self.initialized:
+                    raise NameError("error")
+                return self.variables[val]
+        raise ValueError("error")
+
+    def run(self, program):
+        self.variables.clear()
+        self.initialized.clear()
+        lines = [line.strip() for line in program.strip().split(';') if line.strip()]
+
+        for line in lines:
+            if '=' not in line:
+                raise SyntaxError("error")
+            lhs, rhs = map(str.strip, line.split('=', 1))
+            if not self.is_valid_identifier(lhs):
+                raise SyntaxError("error")
+            try:
+                tokens = self.tokenize(rhs)
+                result = self.parse(tokens)
+            except:
+                raise
+            self.variables[lhs] = result
+            self.initialized.add(lhs)
+
+        return self.variables
+
+
+# Sample usage
+def interpret_program(source_code):
+    interpreter = Interpreter()
+    try:
+        result = interpreter.run(source_code)
+        for var in sorted(result):
+            print(f"{var} = {result[var]}")
+    except:
+        print("error")
+
+
+# Example tests
+print("--- Input 1 ---")
+interpret_program("x = 001;")
+
+print("\n--- Input 2 ---")
+interpret_program("x_2 = 0;")
+
+print("\n--- Input 3 ---")
+interpret_program("x = 0; y = x; z = ---(x+y);")
+
+print("\n--- Input 4 ---")
+interpret_program("x = 1; y = 2; z = ---(x+y)*(x+-y);")
